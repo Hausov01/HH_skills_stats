@@ -1,0 +1,33 @@
+# Файлы окружения и секреты
+.env
+*.env
+.env.local
+secrets.json
+
+# Кэш Python
+__pycache__/
+*.py[cod]
+*.pyc
+
+# Виртуальное окружение
+venv/
+.venv/
+env/
+
+# Логи и временные файлы
+*.log
+*.tmp
+
+# IDE-специфичные файлы
+.vscode/
+.idea/
+*.swp
+.DS_Store (для macOS)
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# Дистрибутивы и сборки
+dist/
+build/
+*.egg-info/
