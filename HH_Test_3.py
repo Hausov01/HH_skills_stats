@@ -7,9 +7,12 @@ import pandas as pd
 from collections import Counter
 import time
 import math
+from datetime import timedelta
+import datetime
 import numpy as np
-import json # Добавим для отладки при необходимости
+import json
 
+# импорт из .env
 load_dotenv()
 token = os.getenv("HH_API_TOKEN")
 email = os.getenv("email")
@@ -20,8 +23,8 @@ vacancy_array = np.array(["Менеджер проекта", "RPA аналити
                           "Системный аналитик", "Финансовый аналитик"])
 vacancy = "Менеджер проекта"
 AREA_ID = "113" #Россия — 113 Москва — 1 Санкт-Петербург — 2 Московская область — 2019
-PER_PAGE = 5 #100
-MAX_VACANCIES_TO_PROCESS = 10 #2000
+PER_PAGE = 20 #100 #20
+MAX_VACANCIES_TO_PROCESS = 100 #2000 # 100
 
 # --- Токен доступа ---
 ACCESS_TOKEN = token
@@ -29,11 +32,14 @@ ACCESS_TOKEN = token
 # --- Константы API ---
 BASE_URL = "https://api.hh.ru/vacancies" # Базовый URL
 
-# --- Глобальная сессия для переиспользования соединения (оптимизация) ---
+# --- Глобальная сессия для переиспользования соединения ---
 session = requests.Session()
 session.headers.update({'User-Agent': 'YourApp/1.0 (' + email + ')'})
 if ACCESS_TOKEN:
-    session.headers.update({'Authorization': f'Bearer {ACCESS_TOKEN}'})
+    session.headers.update({'Authorization': f'Bearer {ACCESS_TOKEN}'})\
+
+# константы
+non_skills = 0
 
 def get_vacancy_ids(vacancy, page=0, ):
     """
@@ -46,6 +52,7 @@ def get_vacancy_ids(vacancy, page=0, ):
 
     params = {
         'text': search_query,
+        'date_from': datetime.date.today()- timedelta(days=14),
         'area': AREA_ID,
         'per_page': PER_PAGE,
         'page': page,
@@ -62,6 +69,12 @@ def get_vacancy_ids(vacancy, page=0, ):
         vacancy_ids = [item['id'] for item in data.get('items', []) if 'id' in item]
         total_found = data.get('found', 0)
         pages_available = data.get('pages', 0)
+        if vacancy_ids is None:
+            print("Не удалось получить ID с первой страницы. Завершение.")
+            return
+        if not vacancy_ids:
+            print("На первой странице не найдено ID вакансий. Завершение.")
+            return
         return vacancy_ids, total_found, pages_available
     except requests.exceptions.RequestException as e:
         print(f"Ошибка при запросе списка ID вакансий: {e}")
@@ -73,18 +86,22 @@ def get_vacancy_ids(vacancy, page=0, ):
         print(f"Полученный текст: {response.text[:200]}...")
         return None, 0, 0
 
-
-def get_vacancy_details(vacancy_id):
+def get_vacancy_details(vacancy_id, number):
     """
     Выполняет запрос к API HH.ru для получения детальной информации о вакансии.
     """
     details_url = f"{BASE_URL}/{vacancy_id}"
-    print(f"  Запрос деталей для вакансии ID: {vacancy_id}")
+    print(f"  Запрос деталей для вакансии ID: {vacancy_id}, № {number}")
     try:
         # Используем ту же сессию с заголовками
         response = session.get(details_url)
         response.raise_for_status()
-        return response.json()
+        data = response.json()
+        if data.get('key_skills', []) is None:
+            print('нет навыков')
+            return
+        else:
+            return response.json()
     except requests.exceptions.RequestException as e:
         print(f"  Ошибка при запросе деталей для ID {vacancy_id}: {e}")
         # Обработка специфичных ошибок (404 Not Found - вакансия удалена/архивирована)
@@ -173,10 +190,10 @@ def main(vacancy):
     processed_details_count = 0
 
     for vacancy_id in all_vacancy_ids:
-        vacancy_details = get_vacancy_details(vacancy_id)
-        processed_details_count += 1
+        vacancy_details = get_vacancy_details(vacancy_id, processed_details_count)
 
         if vacancy_details: # Если детали получены успешно
+            processed_details_count += 1
             # Извлекаем ключевые навыки (key_skills)
             key_skills = vacancy_details.get('key_skills', [])
             if key_skills:
@@ -184,9 +201,18 @@ def main(vacancy):
                     skill_name = skill_dict.get('name')
                     if skill_name:
                          all_skills.append(skill_name)
+        else: print('   Ошибка или нет навыков, пропуск')
 
+            # Отладочный вывод первой вакансии с навыками (если нужно)
+            # if processed_details_count == 1 and key_skills:
+            #    print("\n--- Структура первой ВАКАНСИИ С НАВЫКАМИ ---")
+            #    print(json.dumps(vacancy_details, indent=4, ensure_ascii=False))
+            #    print("--- Конец структуры ---")
 
-        time.sleep(0.5) # Можно увеличить до 0.5 или 1.0, если возникают ошибки 403 (Forbidden)
+        # Важно! Пауза МЕЖДУ запросами ДЕТАЛЕЙ вакансий
+        # Запросы деталей более частые, делаем паузу чуть больше,
+        # особенно если нет токена с высоким лимитом
+        time.sleep(0.3) # Можно увеличить до 0.5 или 1.0, если возникают ошибки 403 (Forbidden)
 
         # Обновление прогресса (например, каждые 50 вакансий)
         if processed_details_count % 50 == 0:
