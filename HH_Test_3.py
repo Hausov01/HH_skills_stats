@@ -14,7 +14,7 @@ import json
 
 # импорт из .env
 load_dotenv()
-token = os.getenv("HH_API_TOKEN")
+token = os.getenv("ACCESS_TOKEN")
 email = os.getenv("email")
 
 # --- Параметры поиска ---
@@ -38,8 +38,6 @@ session.headers.update({'User-Agent': 'YourApp/1.0 (' + email + ')'})
 if ACCESS_TOKEN:
     session.headers.update({'Authorization': f'Bearer {ACCESS_TOKEN}'})\
 
-# константы
-non_skills = 0
 
 def get_vacancy_ids(vacancy, page=0, ):
     """
@@ -120,6 +118,9 @@ def get_vacancy_details(vacancy_id, number):
 
 
 def main(vacancy):
+    # константы
+    non_skills = 0
+
     """
     Основная функция: получает ID вакансий, затем детали, извлекает навыки, считает статистику.
     """
@@ -191,17 +192,20 @@ def main(vacancy):
 
     for vacancy_id in all_vacancy_ids:
         vacancy_details = get_vacancy_details(vacancy_id, processed_details_count)
-
         if vacancy_details: # Если детали получены успешно
-            processed_details_count += 1
             # Извлекаем ключевые навыки (key_skills)
             key_skills = vacancy_details.get('key_skills', [])
-            if key_skills:
+            #print(len(key_skills))
+            if len(key_skills) != 0:
+                processed_details_count += 1
                 for skill_dict in key_skills:
                     skill_name = skill_dict.get('name')
                     if skill_name:
                          all_skills.append(skill_name)
-        else: print('   Ошибка или нет навыков, пропуск')
+            else:
+                non_skills +=1
+                print('  В вакансии не указаны навыки - пропуск')
+        else: print('  Ошибка получения деталей вакансии')
 
             # Отладочный вывод первой вакансии с навыками (если нужно)
             # if processed_details_count == 1 and key_skills:
@@ -222,6 +226,7 @@ def main(vacancy):
     print("-" * 30)
     print(f"Обработка деталей завершена. Всего обработано: {processed_details_count}")
     print(f"Общее количество извлеченных 'упоминаний' навыков: {len(all_skills)}")
+    print(f"Общее количество вакансий без навыков {non_skills}")
 
     if not all_skills:
         print("Не найдено ни одного навыка в обработанных вакансиях.")
