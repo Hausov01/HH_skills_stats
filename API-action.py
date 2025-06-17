@@ -5,12 +5,12 @@ import os
 import requests
 import pandas as pd
 from collections import Counter
-import time
-import math
 from datetime import timedelta
 import datetime
 import numpy as np
 import json
+import time
+from tqdm import tqdm
 
 # импорт из .env
 load_dotenv()
@@ -153,12 +153,11 @@ def get_vacancy_ids(vacancy):
                     added_count = len(vacancy_ids[:ids_to_add])
                     processed_ids_count += added_count
 
-
                     page += 1
                     # Пауза между запросами списка ID
                     time.sleep(0.25)
             all_processed_ids_count += processed_ids_count
-            print(f"Завершена обработка {datetime.date.today() - timedelta(days=i)}. Получено {processed_ids_count} ID (всего собрано {all_processed_ids_count})")
+            print(f"Завершена обработка дня {i} ({datetime.date.today() - timedelta(days=i)}). Получено {processed_ids_count} ID (всего собрано {all_processed_ids_count})")
 
     if not all_vacancy_ids:
         print("Не удалось собрать ID вакансий.")
@@ -168,11 +167,97 @@ def get_vacancy_ids(vacancy):
     print(f"Сбор ID завершен. Собрано ID для обработки: {len(all_vacancy_ids)}")
     return all_vacancy_ids
 
+def get_vacancy_details(vacancy_id, number):
+    details_url = f"{BASE_URL}/{vacancy_id}"
+    #print(f"  Запрос деталей для вакансии ID: {vacancy_id}, № {number}")
+    try:
+        # Используем ту же сессию с заголовками
+        response = session.get(details_url)
+        response.raise_for_status()
+        data = response.json()
+        if data.get('key_skills', []) is None:
+            print('нет навыков')
+            return
+        else:
+            return response.json()
+    except requests.exceptions.RequestException as e:
+        print(f"  Ошибка при запросе деталей для ID {vacancy_id}: {e}")
+        # Обработка специфичных ошибок (404 Not Found - вакансия удалена/архивирована)
+        if hasattr(e, 'response') and e.response is not None:
+             if e.response.status_code == 404:
+                 print(f"  Вакансия {vacancy_id} не найдена (возможно, удалена).")
+             elif e.response.status_code == 403:
+                 print(f"  Доступ к вакансии {vacancy_id} запрещен (403). Проверьте токен/права.")
+             else:
+                 print(f"  Status: {e.response.status_code}, Body: {e.response.text[:200]}...")
+        return None
+    except json.JSONDecodeError as e:
+        print(f"  Ошибка декодирования JSON для деталей ID {vacancy_id}: {e}")
+        print(f"  Полученный текст: {response.text[:200]}...")
+        return None
 
+all_skills = []
+count = 0
+processed_details_count = 0
+non_skills = 0
 
-for i in vacancy_array:
+for vac in vacancy_array:
     if __name__ == "__main__":
-        print("Поиск по вакансии: ", i)
-        all_vacancy_ids = get_vacancy_ids(i)
-        print(all_vacancy_ids)
+        print("--- Этап 1: Сбор ID вакансий ---")
+        print("Поиск по вакансии: ", vac)
+        all_vacancy_ids = get_vacancy_ids(vac)
+        print("\n--- Этап 2: Получение деталей вакансий и извлечение навыков --- ", vac)
+        for id in tqdm(all_vacancy_ids):
+            vacancy_details = get_vacancy_details(id, count)
+            count +=1
+            time.sleep(0.25)
+            if vacancy_details: # Если детали получены успешно
+                # Извлекаем ключевые навыки (key_skills)
+                key_skills = vacancy_details.get('key_skills', [])
+                if len(key_skills) != 0:
+                    processed_details_count += 1
+                    for skill_dict in key_skills:
+                        skill_name = skill_dict.get('name')
+                        if skill_name:
+                             all_skills.append(skill_name)
+                else:
+                    non_skills +=1
+                    #print('  В вакансии не указаны навыки - пропуск')
+            else: print('  Ошибка получения деталей вакансии')
+        print(f"Обработано вакансий в процентном отношении: {(processed_details_count/len(all_vacancy_ids))*100}...")
+
+        print(f"Обработка деталей завершена. Всего обработано: {processed_details_count}")
+        print(f"Общее количество извлеченных 'упоминаний' навыков: {len(all_skills)}")
+        print(f"Общее количество вакансий без навыков {non_skills}")
+        if not all_skills:
+            print("Не найдено ни одного навыка в обработанных вакансиях.")
+        print("-" * 30)
+
+        print("---Этап 3:Анализ навыков---")
+        # (Этот блок остается без изменений)
+        skill_counts = Counter(all_skills)
+        skills_df = pd.DataFrame(skill_counts.items(), columns=['Навык', 'Количество'])
+        total_skill_mentions = skills_df['Количество'].sum()
+        if total_skill_mentions > 0:
+            skills_df['Процент'] = (skills_df['Количество'] / total_skill_mentions) * 100
+            skills_df['Процент'] = skills_df['Процент'].map('{:.2f}%'.format)
+        else:
+            skills_df['Процент'] = '0.00%'  # На случай, если skills все же пустые
+
+        skills_df = skills_df.sort_values(by='Количество', ascending=False).reset_index(drop=True)
+
+        # --- Вывод результатов ---
+        print("-" * 30)
+        print(f"Топ {min(30, len(skills_df))} навыков для '{vacancy}':")
+        print(skills_df.head(30).to_string())
+
+        # --- Сохранение в CSV (опционально) ---
+        try:
+            output_filename = f"data/hh_skills_{vacancy.lower().replace(' ', '_')}_{AREA_ID}.csv"
+            skills_df.to_csv(output_filename, index=False, encoding='utf-8-sig')
+            print("-" * 30)
+            print(f"Результаты сохранены в файл: {output_filename}")
+        except Exception as e:
+            print(f"\nНе удалось сохранить файл: {e}")
+
         print('\n\n\n')

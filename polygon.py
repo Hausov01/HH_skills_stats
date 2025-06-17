@@ -1,8 +1,7 @@
 import time
-import datetime
-from datetime import timedelta
+from tqdm import tqdm
 
-print(datetime.date.today()- timedelta(days=14))
+mylist = [1,2,3,4,5,6,7,8]
 
-for i in range(0,14):
-    print(datetime.date.today()- timedelta(days=i))
+for i in tqdm(mylist):
+    time.sleep(1)
