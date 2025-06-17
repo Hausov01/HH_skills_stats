@@ -19,8 +19,8 @@ email = os.getenv("email")
 
 # --- Параметры поиска ---
 SEARCH_TEXT = "Менеджер проекта"
-vacancy_array = np.array(["Менеджер проекта", "RPA аналитик", "Бизнес аналитик", "Руководитель проекта",
-                          "Системный аналитик", "Финансовый аналитик"])
+vacancy_array = np.array(["Системный аналитик", "Руководитель проекта", "Финансовый аналитик",
+                          "Бизнес аналитик", "RPA аналитик", "Менеджер проекта"])
 vacancy = "Менеджер проекта"
 AREA_ID = "113" #Россия — 113 Москва — 1 Санкт-Петербург — 2 Московская область — 2019
 PER_PAGE = 100 #100 #20
@@ -85,15 +85,25 @@ def get_vacancy_id_per_date(vacancy, date, page):
     if not search_query:
         print("Ошибка: Поисковый запрос (vacancy) не может быть пустым.")
         return None, 0, 0
-    params = {
-        'text': search_query,
-        'date_from': date,
-        'date_to': date,
-        'area': AREA_ID,
-        'per_page': PER_PAGE,
-        'page': page,
-        'only_with_salary': False,
-    }
+    if date != 'none':
+        params = {
+            'text': search_query,
+            'date_from': date,
+            'date_to': date,
+            'area': AREA_ID,
+            'per_page': PER_PAGE,
+            'page': page,
+            'only_with_salary': False,
+        }
+    else:
+        params = {
+            'text': search_query,
+            'date_from': datetime.date.today() - timedelta(days=28),
+            'area': AREA_ID,
+            'per_page': PER_PAGE,
+            'page': page,
+            'only_with_salary': False,
+        }
 
     #print(f"Запрос страницы {page} для получения ID")
     try:
@@ -106,10 +116,10 @@ def get_vacancy_id_per_date(vacancy, date, page):
         pages_available = data.get('pages', 0)
         if vacancy_ids is None:
             print("Не удалось получить ID с первой страницы. Завершение.")
-            return
+            return None
         if not vacancy_ids:
             print("На первой странице не найдено ID вакансий. Завершение.")
-            return
+            return None
         #print(f"Найдено вакансий (всего): {total_found}, доступно страниц {pages_available} ")
         return vacancy_ids, total_found, pages_available
     except requests.exceptions.RequestException as e:
@@ -143,6 +153,7 @@ def get_vacancy_ids(vacancy):
                     vacancy_ids, _, _ = get_vacancy_id_per_date(vacancy, date, page)
                     if vacancy_ids is None: # Ошибка при запросе страницы
                          page += 1
+                         print("Ошибка при запросе страницы")
                          time.sleep(0.5) # Пауза перед следующей попыткой
                     if not vacancy_ids:
                         print(f"На странице {page} больше нет ID, завершаем сбор ID.")
@@ -158,6 +169,34 @@ def get_vacancy_ids(vacancy):
                     time.sleep(0.25)
             all_processed_ids_count += processed_ids_count
             print(f"Завершена обработка дня {i} ({datetime.date.today() - timedelta(days=i)}). Получено {processed_ids_count} ID (всего собрано {all_processed_ids_count})")
+    else:
+        page = 0
+        processed_ids_count = 0
+        _, total_found, pages_available = get_vacancy_id_per_date(vacancy, 'none', page)
+        print(f'Получение всех id, всего найдено {total_found} вакансий')
+        if total_found > 2000:
+            print('Ошибка: превышение лимита вакансий - больше 2000 вакансий за день')
+            exit
+        else:
+            while page < pages_available and processed_ids_count < total_found:
+                vacancy_ids, _, _ = get_vacancy_id_per_date(vacancy, 'none', page)
+                if vacancy_ids is None:  # Ошибка при запросе страницы
+                    page += 1
+                    print("Ошибка при запросе страницы")
+                    time.sleep(0.5)  # Пауза перед следующей попыткой
+                if not vacancy_ids:
+                    print(f"На странице {page} больше нет ID, завершаем сбор ID.")
+                    break
+                # Добавляем ID, но не больше, чем заданный лимит
+                ids_to_add = total_found - processed_ids_count
+                all_vacancy_ids.extend(vacancy_ids)
+                added_count = len(vacancy_ids[:ids_to_add])
+                processed_ids_count += added_count
+
+                page += 1
+                # Пауза между запросами списка ID
+                time.sleep(0.25)
+            print(f"Завершена обработка всех вакансий. Получено {processed_ids_count} ID (всего собрано {all_processed_ids_count})")
 
     if not all_vacancy_ids:
         print("Не удалось собрать ID вакансий.")
@@ -201,8 +240,8 @@ count = 0
 processed_details_count = 0
 non_skills = 0
 
-for vac in vacancy_array:
-    if __name__ == "__main__":
+if __name__ == "__main__":
+    for vac in vacancy_array:
         print("--- Этап 1: Сбор ID вакансий ---")
         print("Поиск по вакансии: ", vac)
         all_vacancy_ids = get_vacancy_ids(vac)
@@ -248,7 +287,7 @@ for vac in vacancy_array:
 
         # --- Вывод результатов ---
         print("-" * 30)
-        print(f"Топ {min(30, len(skills_df))} навыков для '{vacancy}':")
+        print(f"Топ {min(30, len(skills_df))} навыков для '{vac}':")
         print(skills_df.head(30).to_string())
 
         # --- Сохранение в CSV (опционально) ---
