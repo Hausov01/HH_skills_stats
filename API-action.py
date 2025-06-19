@@ -278,10 +278,11 @@ if __name__ == "__main__":
         skills_df = pd.DataFrame(skill_counts.items(), columns=['Навык', 'Количество'])
         total_skill_mentions = skills_df['Количество'].sum()
         if total_skill_mentions > 0:
-            skills_df['Процент'] = (skills_df['Количество'] / total_skill_mentions) * 100
-            skills_df['Процент'] = skills_df['Процент'].map('{:.2f}%'.format)
+            skills_df['Процент от всех навыков'] = (skills_df['Количество'] / total_skill_mentions).round(2)
+            skills_df['Процент популярности'] = (skills_df['Количество'] / len(all_vacancy_ids)).round(2)
         else:
-            skills_df['Процент'] = '0.00%'  # На случай, если skills все же пустые
+            skills_df['Процент от всех навыков'] = 0  # На случай, если skills все же пустые
+            skills_df['Процент популярности'] = 0
 
         skills_df = skills_df.sort_values(by='Количество', ascending=False).reset_index(drop=True)
 
@@ -292,7 +293,7 @@ if __name__ == "__main__":
 
         # --- Сохранение в CSV (опционально) ---
         try:
-            output_filename = f"data/hh_skills_{vacancy.lower().replace(' ', '_')}_{AREA_ID}.csv"
+            output_filename = f"data/hh_skills_{vac.lower().replace(' ', '_')}_{AREA_ID}.csv"
             skills_df.to_csv(output_filename, index=False, encoding='utf-8-sig')
             print("-" * 30)
             print(f"Результаты сохранены в файл: {output_filename}")
