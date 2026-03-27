@@ -19,12 +19,13 @@ email = os.getenv("email")
 
 # --- Параметры поиска ---
 SEARCH_TEXT = "Менеджер проекта"
-vacancy_array = np.array(["Системный аналитик", "Руководитель проекта", "Финансовый аналитик",
-                          "Бизнес аналитик", "RPA аналитик", "Менеджер проекта"])
+vacancy_array = np.array(["RPA аналитик", "Финансовый аналитик", "Бизнес аналитик", "Системный аналитик",
+                         "Менеджер проекта", "Руководитель проекта" ])
 vacancy = "Менеджер проекта"
 AREA_ID = "113" #Россия — 113 Москва — 1 Санкт-Петербург — 2 Московская область — 2019
 PER_PAGE = 100 #100 #20
 MAX_VACANCIES_TO_PROCESS = 2000 #2000
+PERIOD = 7 #Период сбора вакансий
 
 # --- Токен доступа ---
 ACCESS_TOKEN = token
@@ -46,14 +47,14 @@ def get_vacancy_quantity(vacancy, page=0, ):
         return None, 0, 0
     params = {
         'text': search_query,
-        'date_from': datetime.date.today()- timedelta(days=28),
+        'date_from': datetime.date.today()- timedelta(days=PERIOD),
         'area': AREA_ID,
         'per_page': PER_PAGE,
         'page': page,
         'only_with_salary': False,
     }
 
-    print(f"Запрос для получения количества вакансий с {datetime.date.today()- timedelta(days=28)} по текущую дату")
+    print(f"Запрос для получения количества вакансий с {datetime.date.today()- timedelta(days=PERIOD)} по текущую дату, период: {PERIOD} дней")
     try:
         # Используем сессию
         response = session.get(BASE_URL, params=params)
@@ -98,7 +99,7 @@ def get_vacancy_id_per_date(vacancy, date, page):
     else:
         params = {
             'text': search_query,
-            'date_from': datetime.date.today() - timedelta(days=28),
+            'date_from': datetime.date.today() - timedelta(days=PERIOD),
             'area': AREA_ID,
             'per_page': PER_PAGE,
             'page': page,
@@ -139,12 +140,19 @@ def get_vacancy_ids(vacancy):
 
     max_found, max_pages= get_vacancy_quantity(vacancy, page)
     if max_found >= MAX_VACANCIES_TO_PROCESS:
-        for i in range(0,28):
+        day_collection = (pd.date_range
+        (
+            start=datetime.date.today() - timedelta(days=PERIOD),
+            end=datetime.date.today(),
+            freq='D').strftime('%Y-%m-%d').tolist()
+        )
+        #day_collection = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28]
+        for date in tqdm(day_collection):
+        #for i in range(0,28):
             page = 0
             processed_ids_count = 0
-            date = datetime.date.today() - timedelta(days=i)
             _, total_found, pages_available = get_vacancy_id_per_date(vacancy, date, page)
-            print(f'Получение id от {datetime.date.today() - timedelta(days=i)}, всего найдено {total_found} вакансий')
+            #print(f'Получение id от {datetime.date.today() - timedelta(days=i)}, всего найдено {total_found} вакансий')
             if total_found >2000:
                 print('Ошибка: превышение лимита вакансий - больше 2000 вакансий за день')
                 exit
@@ -168,7 +176,7 @@ def get_vacancy_ids(vacancy):
                     # Пауза между запросами списка ID
                     time.sleep(0.25)
             all_processed_ids_count += processed_ids_count
-            print(f"Завершена обработка дня {i} ({datetime.date.today() - timedelta(days=i)}). Получено {processed_ids_count} ID (всего собрано {all_processed_ids_count})")
+            #print(f"Завершена обработка дня {i} ({datetime.date.today() - timedelta(days=i)}). Получено {processed_ids_count} ID (всего собрано {all_processed_ids_count})")
     else:
         page = 0
         processed_ids_count = 0
