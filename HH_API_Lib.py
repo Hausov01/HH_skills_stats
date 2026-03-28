@@ -4,42 +4,39 @@ from dotenv import load_dotenv
 import os
 import requests
 import pandas as pd
-from collections import Counter
 from datetime import timedelta
 import datetime
-import numpy as np
 import json
 import time
 from tqdm import tqdm
+from dataclasses import dataclass
 
-# импорт из .env
-load_dotenv()
-token = os.getenv("ACCESS_TOKEN")
-email = os.getenv("email")
+
+
+    # --- Константы API ---
+BASE_URL = None  # Базовый URL
+PER_PAGE = 100
+MAX_VACANCIES_TO_PROCESS = 2000
+session = None
 
 # --- Параметры поиска ---
 #SEARCH_TEXT = "Менеджер проекта"
 #vacancy_array = np.array(["RPA аналитик", "Финансовый аналитик", "Бизнес аналитик", "Системный аналитик", "Менеджер проекта", "Руководитель проекта" ])
-vacancy = "Менеджер проекта"
+#vacancy = "Менеджер проекта"
 #AREA_ID = "113" #Россия — 113 Москва — 1 Санкт-Петербург — 2 Московская область — 2019
-PER_PAGE = 100 #100 #20
-MAX_VACANCIES_TO_PROCESS = 2000 #2000
 #PERIOD = 7 #Период сбора вакансий
 
-# --- Токен доступа ---
-ACCESS_TOKEN = token
+@dataclass
+class HHConfig:
+    base_url: str
+    access_token: str | None = None
+    email: str | None = None
+    per_page: int = 100
+    max_vacancies: int = 2000
+    timeout: int = 10
 
-# --- Константы API ---
-BASE_URL = "https://api.hh.ru/vacancies" # Базовый URL
+def _get_vacancy_quantity(vacancy, PERIOD, AREA_ID, page=0, ):
 
-# --- Глобальная сессия для переиспользования соединения ---
-session = requests.Session()
-session.headers.update({'User-Agent': 'YourApp/1.0 (' + email + ')'})
-if ACCESS_TOKEN:
-    session.headers.update({'Authorization': f'Bearer {ACCESS_TOKEN}'})\
-
-
-def get_vacancy_quantity(vacancy, PERIOD, AREA_ID, page=0, ):
     search_query = vacancy.strip()
     if not search_query:
         print("Ошибка: Поисковый запрос (vacancy) не может быть пустым.")
@@ -80,7 +77,7 @@ def get_vacancy_quantity(vacancy, PERIOD, AREA_ID, page=0, ):
         print(f"Полученный текст: {response.text[:200]}...")
         return None, 0, 0
 
-def get_vacancy_id_per_date(vacancy, date, page, PERIOD, AREA_ID):
+def _get_vacancy_ids_per_date(vacancy, date, page, PERIOD, AREA_ID):
     search_query = vacancy.strip()
     if not search_query:
         print("Ошибка: Поисковый запрос (vacancy) не может быть пустым.")
@@ -133,12 +130,14 @@ def get_vacancy_id_per_date(vacancy, date, page, PERIOD, AREA_ID):
         return None, 0, 0
 
 #Сбор данных по дням о кол-во вакансий за период
-def get_vacancy_ids(vacancy, PERIOD, AREA_ID):
+def _get_vacancy_ids(vacancy, PERIOD, AREA_ID):
     page = 0
     all_processed_ids_count = 0
     all_vacancy_ids = []
+    PER_PAGE = 100  # 100 #20
+    MAX_VACANCIES_TO_PROCESS = 2000  # 2000
 
-    max_found, max_pages= get_vacancy_quantity(vacancy, PERIOD, AREA_ID, page)
+    max_found, max_pages = _get_vacancy_quantity(vacancy, PERIOD, AREA_ID, page)
     if max_found >= MAX_VACANCIES_TO_PROCESS:
         day_collection = (pd.date_range
         (
@@ -149,14 +148,14 @@ def get_vacancy_ids(vacancy, PERIOD, AREA_ID):
         for date in tqdm(day_collection):
             page = 0
             processed_ids_count = 0
-            _, total_found, pages_available = get_vacancy_id_per_date(vacancy, date, page, PERIOD, AREA_ID)
+            _, total_found, pages_available = _get_vacancy_ids_per_date(vacancy, date, page, PERIOD, AREA_ID)
             #print(f'Получение id от {datetime.date.today() - timedelta(days=i)}, всего найдено {total_found} вакансий')
             if total_found >2000:
                 print('Ошибка: превышение лимита вакансий - больше 2000 вакансий за день')
-                exit
+                exit()
             else:
                 while page < pages_available and processed_ids_count < total_found :
-                    vacancy_ids, _, _ = get_vacancy_id_per_date(vacancy, date, page, PERIOD, AREA_ID)
+                    vacancy_ids, _, _ = _get_vacancy_ids_per_date(vacancy, date, page, PERIOD, AREA_ID)
                     if vacancy_ids is None: # Ошибка при запросе страницы
                          page += 1
                          print("Ошибка при запросе страницы")
@@ -179,14 +178,14 @@ def get_vacancy_ids(vacancy, PERIOD, AREA_ID):
     else:
         page = 0
         processed_ids_count = 0
-        _, total_found, pages_available = get_vacancy_id_per_date(vacancy, 'none', page, PERIOD, AREA_ID)
+        _, total_found, pages_available = _get_vacancy_ids_per_date(vacancy, 'none', page, PERIOD, AREA_ID)
         print(f'Получение всех id, всего найдено {total_found} вакансий')
         if total_found > 2000:
             print('Ошибка: превышение лимита вакансий - больше 2000 вакансий за день')
-            exit
+            exit()
         else:
             while page < pages_available and processed_ids_count < total_found:
-                vacancy_ids, _, _ = get_vacancy_id_per_date(vacancy, 'none', page, PERIOD, AREA_ID)
+                vacancy_ids, _, _ = _get_vacancy_ids_per_date(vacancy, 'none', page, PERIOD, AREA_ID)
                 if vacancy_ids is None:  # Ошибка при запросе страницы
                     page += 1
                     print("Ошибка при запросе страницы")
@@ -214,7 +213,7 @@ def get_vacancy_ids(vacancy, PERIOD, AREA_ID):
     return all_vacancy_ids
 
 #Получение данных по вакансиям по их собранным id
-def get_vacancy_details(vacancy_id, number):
+def _get_vacancy_details(vacancy_id):
     details_url = f"{BASE_URL}/{vacancy_id}"
     #print(f"  Запрос деталей для вакансии ID: {vacancy_id}, № {number}")
     try:
@@ -222,11 +221,7 @@ def get_vacancy_details(vacancy_id, number):
         response = session.get(details_url)
         response.raise_for_status()
         data = response.json()
-        if data.get('key_skills', []) is None:
-            print('нет навыков')
-            return
-        else:
-            return response.json()
+        return data
     except requests.exceptions.RequestException as e:
         print(f"  Ошибка при запросе деталей для ID {vacancy_id}: {e}")
         # Обработка специфичных ошибок (404 Not Found - вакансия удалена/архивирована)
@@ -243,35 +238,53 @@ def get_vacancy_details(vacancy_id, number):
         print(f"  Полученный текст: {response.text[:200]}...")
         return None
 
-all_skills = []
-count = 0
-processed_details_count = 0
-non_skills = 0
+# импорт из .env
+def configure(env_path):
+    """Загружает переменные из .env, если путь указан."""
+    if env_path:
+        load_dotenv(dotenv_path=env_path)
 
-def external_request(AREA_ID, PERIOD, vacancy_array):
-    all_skills = []
+def create_session(env_path=".env"):
+    configure(env_path)
+    token = os.getenv("ACCESS_TOKEN")
+    email = os.getenv("email")
+    BASE_URL = os.getenv("BASE_URL")
+
+    # --- Токен доступа ---
+    ACCESS_TOKEN = token
+
+    # --- Глобальная сессия для переиспользования соединения ---
+    global session
+    global BASE_URL
+    session = requests.Session()
+    session.headers.update({'User-Agent': 'YourApp/1.0 (' + email + ')'})
+    if ACCESS_TOKEN:
+        session.headers.update({'Authorization': f'Bearer {ACCESS_TOKEN}'})
+    return session
+
+
+def external_request(AREA_ID, PERIOD, vacancy):
     count = 0
-    processed_details_count = 0
-    non_skills = 0
-    for vac in vacancy_array:
-        results = []
-        print("--- Этап 1: Сбор ID вакансий ---")
-        print("Поиск по вакансии: ", vac)
-        all_vacancy_ids = get_vacancy_ids(vac, PERIOD, AREA_ID)
-        print("\n--- Этап 2: Получение деталей вакансий и извлечение навыков --- ", vac)
-        for id in tqdm(all_vacancy_ids):
-            vacancy_details = get_vacancy_details(id, count)
-            count +=1
-            time.sleep(0.25)
-            if vacancy_details: # Если детали получены успешно
-                results.append(vacancy_details)
-            else:
-                print("Ошибка получения деталей вакансии")
-        final_json = json.dumps(results, ensure_ascii=False, indent=2)
+    results = []
+
+    print("--- Этап 1: Сбор ID вакансий ---")
+    print("Поиск по вакансии: ", vacancy)
+    all_vacancy_ids = _get_vacancy_ids(vacancy, PERIOD, AREA_ID)
+    print("\n--- Этап 2: Получение деталей вакансий и извлечение навыков --- ", vacancy)
+    for id in tqdm(all_vacancy_ids):
+        vacancy_details = _get_vacancy_details(id)
+        count +=1
+        time.sleep(0.25)
+        if vacancy_details: # Если детали получены успешно
+            results.append(vacancy_details)
+        else:
+            print("Ошибка получения деталей вакансии")
+    final_json = json.dumps(results, ensure_ascii=False, indent=2)
     with open('output.json', 'w', encoding='utf-8') as f:
         f.write(final_json)
     return final_json
 
+__all__ = ['external_request', 'create_session']
 
 if __name__ == "__main__":
     print("Прямой запуск не предусмотрен")
